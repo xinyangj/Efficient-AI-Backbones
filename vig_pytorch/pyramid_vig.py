@@ -7,7 +7,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn import Sequential as Seq
-from models.gcn_lib import Grapher, act_layer
+from gcn_lib import Grapher, act_layer
 
 from timm.data import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
 from timm.models.helpers import load_pretrained
@@ -69,7 +69,7 @@ class Stem(nn.Module):
     def __init__(self, img_size=224, in_dim=3, out_dim=768, act='relu'):
         super().__init__()        
         self.convs = nn.Sequential(
-            nn.Conv2d(in_dim, out_dim//2, 3, stride=2, padding=1),
+            nn.Conv2d(in_dim, out_dim//2, 3, stride=1, padding=1),
             nn.BatchNorm2d(out_dim//2),
             act_layer(act),
             nn.Conv2d(out_dim//2, out_dim, 3, stride=2, padding=1),
@@ -118,12 +118,13 @@ class DeepGCN(torch.nn.Module):
         channels = opt.channels
         reduce_ratios = [4, 2, 1, 1]
         dpr = [x.item() for x in torch.linspace(0, drop_path, self.n_blocks)]  # stochastic depth decay rule 
-        num_knn = [int(x.item()) for x in torch.linspace(k, k, self.n_blocks)]  # number of knn's k
+        num_knn = [int(x.item()) for x in torch.linspace(k, 2, self.n_blocks)]  # number of knn's k
+
         max_dilation = 49 // max(num_knn)
         
         self.stem = Stem(out_dim=channels[0], act=act)
-        self.pos_embed = nn.Parameter(torch.zeros(1, channels[0], 224//4, 224//4))
-        HW = 224 // 4 * 224 // 4
+        self.pos_embed = nn.Parameter(torch.zeros(1, channels[0], 32//2, 32//2))
+        HW = 32 // 2 * 32 // 2
 
         self.backbone = nn.ModuleList([])
         idx = 0
@@ -132,8 +133,16 @@ class DeepGCN(torch.nn.Module):
                 self.backbone.append(Downsample(channels[i-1], channels[i]))
                 HW = HW // 4
             for j in range(blocks[i]):
+                '''
                 self.backbone += [
                     Seq(Grapher(channels[i], num_knn[idx], min(idx // 4 + 1, max_dilation), conv, act, norm,
+                                    bias, stochastic, epsilon, reduce_ratios[i], n=HW, drop_path=dpr[idx],
+                                    relative_pos=True),
+                          FFN(channels[i], channels[i] * 4, act=act, drop_path=dpr[idx])
+                         )]
+                '''
+                self.backbone += [
+                    Seq(Grapher(channels[i], num_knn[idx], 1, conv, act, norm,
                                     bias, stochastic, epsilon, reduce_ratios[i], n=HW, drop_path=dpr[idx],
                                     relative_pos=True),
                           FFN(channels[i], channels[i] * 4, act=act, drop_path=dpr[idx])
@@ -161,6 +170,7 @@ class DeepGCN(torch.nn.Module):
         x = self.stem(inputs) + self.pos_embed
         B, C, H, W = x.shape
         for i in range(len(self.backbone)):
+            #print('i', i, x.size())
             x = self.backbone[i](x)
 
         x = F.adaptive_avg_pool2d(x, 1)
@@ -191,6 +201,30 @@ def pvig_ti_224_gelu(pretrained=False, **kwargs):
     model.default_cfg = default_cfgs['vig_224_gelu']
     return model
 
+
+@register_model
+def pvig_ti_32_gelu(pretrained=False, **kwargs):
+    class OptInit:
+        def __init__(self, num_classes=1000, drop_path_rate=0.0, **kwargs):
+            self.k = 9 # neighbor num (default:9)
+            self.conv = 'mr' # graph conv layer {edge, mr}
+            self.act = 'gelu' # activation layer {relu, prelu, leakyrelu, gelu, hswish}
+            self.norm = 'batch' # batch or instance normalization {batch, instance}
+            self.bias = True # bias of conv layer True or False
+            self.dropout = 0.0 # dropout rate
+            self.use_dilation = False # use dilated knn or not
+            self.epsilon = 0.2 # stochastic epsilon for gcn
+            self.use_stochastic = False # stochastic for gcn, True or False
+            self.drop_path = drop_path_rate
+            self.blocks = [2,2,6,2] # number of basic blocks in the backbone
+            self.channels = [48, 96, 240, 384] # number of channels of deep features
+            self.n_classes = num_classes # Dimension of out_channels
+            self.emb_dims = 1024 # Dimension of embeddings
+
+    opt = OptInit(**kwargs)
+    model = DeepGCN(opt)
+    model.default_cfg = default_cfgs['vig_224_gelu']
+    return model
 
 @register_model
 def pvig_s_224_gelu(pretrained=False, **kwargs):
