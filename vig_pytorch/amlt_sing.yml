@@ -1,0 +1,49 @@
+description: NNN
+
+env_defaults:
+  NODES: 1 
+  GPUS: 8
+  MEM: 32
+
+target:
+  service: aisc
+
+environment:
+  image: amlt-sing/pytorch-1.8.0
+  #image: pytorch/pytorch:1.10.0-cuda11.3-cudnn8-devel
+  setup:
+    - pip install timm==0.3.2
+    - pip install torchprofile
+    - ./azcopy copy 'https://usscv100data.blob.core.windows.net/v-yugzh/imagenet/all?sp=racwdli&st=2022-07-20T05:44:37Z&se=2023-03-29T13:44:37Z&spr=https&sv=2021-06-08&sr=c&sig=8tjcHVDYt90acf58KPXstIX4vjz%2BPyeLHEyGiQEgPsg%3D' . --recursive
+    - mv all imagenet
+
+code:
+  # local directory of the code. this will be uploaded to the server.
+  # $CONFIG_DIR is expanded to the directory of this config file
+  local_dir: .
+
+jobs:    
+- name: vig03_imagenet_04_multigpu
+  sku: ${NODES}xG${GPUS}
+  command:
+  #  - python -m torch.distributed.launch --nnodes=$NODES --nproc_per_node=$GPUS train_imagenet.py imagenet --model pvig_ti_224_gelu --sched cosine --epochs 300 --opt adamw -j 8 --warmup-lr 1e-6 --mixup .8 --cutmix 1.0 --model-ema --model-ema-decay 0.99996 --aa rand-m9-mstd0.5-inc1 --color-jitter 0.4 --warmup-epochs 20 --opt-eps 1e-8 --repeated-aug --remode pixel --reprob 0.25 --amp --lr 2e-3 --weight-decay .05 --drop 0 --drop-path .1 -b 8 --output $$AMLT_OUTPUT_DIR/checkpoints --recovery-interval 5000 --resume  checkpoints --native-amp #$$AMLT_OUTPUT_DIR/checkpoints/
+  #  - python train_imagenet.py imagenet --model pvig_ti_224_gelu --sched cosine --epochs 300 --opt adamw -j 8 --warmup-lr 1e-6 --mixup .8 --cutmix 1.0 --model-ema --model-ema-decay 0.99996 --aa rand-m9-mstd0.5-inc1 --color-jitter 0.4 --warmup-epochs 20 --opt-eps 1e-8 --repeated-aug --remode pixel --reprob 0.25 --amp --lr 2e-3 --weight-decay .05 --drop 0 --drop-path .1 -b 64 --output $$AMLT_OUTPUT_DIR/checkpoints --recovery-interval 5000 --resume  checkpoints --native-amp --local_rank $$LOCAL_RANK #--rank $$RANK #$$AMLT_OUTPUT_DIR/checkpoints/
+  - python train_imagenet.py imagenet --model pvig_ti_224_gelu --sched cosine --epochs 400 --opt adamw -j 8 --warmup-lr 1e-6 --mixup .8 --cutmix 1.0 --model-ema --model-ema-decay 0.99996 --aa rand-m9-mstd0.5-inc1 --color-jitter 0.4 --warmup-epochs 20 --opt-eps 1e-8 --repeated-aug --remode pixel --reprob 0.25 --amp --lr 1e-3 --weight-decay .05 --drop 0 --drop-path .1 -b 64 --output $$AMLT_OUTPUT_DIR/checkpoints --recovery-interval 5000 --resume  checkpoint --native-amp --num-gpu $GPUS --model-ema #--local_rank $$LOCAL_RANK #--rank $$RANK #$$AMLT_OUTPUT_DIR/checkpoints/
+  #process_count_per_node: ${GPUS}
+
+   
+  sla_tier: premium #premium # Default: premium
+  #execution_mode: basic  # Default: basic
+  priority: high # Default: medium
+
+# data:
+#   data upload is not required for this example
+
+# list of jobs to run, we run 2 jobs in this example
+
+  #storage:
+  #  shared_datastore:
+  # storage_account_name: msrashaiteamdrive #msrashaiteamdrive #msrashaiteamdriveeastus
+  #  container_name: amulet
+  #  mount_dir: /mnt/amlt
+

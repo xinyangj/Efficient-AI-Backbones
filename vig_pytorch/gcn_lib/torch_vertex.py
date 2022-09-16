@@ -14,11 +14,16 @@ class MRConv2d(nn.Module):
     """
     Max-Relative Graph Convolution (Paper: https://arxiv.org/abs/1904.03751) for dense data type
     """
-    def __init__(self, in_channels, out_channels, act='relu', norm=None, bias=True):
+    def __init__(self, in_channels, out_channels, act='relu', norm=None, bias=True, port_ratio = 0.75):
         super(MRConv2d, self).__init__()
+        self.port_size = int(in_channels * port_ratio)
         self.nn = BasicConv([in_channels*2, out_channels], act, norm, bias)
+        self.linear =  torch.nn.Conv2d(in_channels, in_channels, kernel_size = 1)
+        self.linear_prod =  torch.nn.Conv2d(in_channels * in_channels, in_channels, kernel_size = 1)
+        self.linear_port = torch.nn.Conv2d(self.port_size, self.port_size, kernel_size = 1)
 
     def forward(self, x, edge_index, y=None):
+        '''
         x_i = batched_index_select(x, edge_index[1])
         if y is not None:
             x_j = batched_index_select(y, edge_index[0])
@@ -27,6 +32,56 @@ class MRConv2d(nn.Module):
         x_j, _ = torch.max(x_j - x_i, -1, keepdim=True)
         b, c, n, _ = x.shape
         x = torch.cat([x.unsqueeze(2), x_j.unsqueeze(2)], dim=2).reshape(b, 2 * c, n, _)
+        '''
+        
+        b, c, n, _ = x.shape
+        #print(x.size(), x[:, 0:self.port_size, :].reshape(b, self.port_size, n, _).size())
+        
+        if y is not None:
+            y_port = y[:, 0:self.port_size, :, :] #self.linear_port(y[:, 0:self.port_size, :, :])
+        else:
+            x_port = x[:, 0:self.port_size, :, :] #self.linear_port(x[:, 0:self.port_size, :, :])
+
+        if y is not None:
+            x_j = batched_index_select(y_port, edge_index[0])
+        else:
+            x_j = batched_index_select(x_port, edge_index[0])
+        x_i = batched_index_select(x, edge_index[1])
+
+        #print(x_j.size())
+        #x_j = torch.sum(x_j, dim = -1, keepdim = True)
+        x_j, _ = torch.max(x_j - x_i[:, 0:self.port_size, :, :], -1, keepdim=True)
+        #x_j = self.linear_port(x_j)
+        #print(x_j.size())
+        
+        x2 = x.clone()
+        x2[:, 0:self.port_size, :, ] += x_j
+        
+        #print(x2.size())
+        '''
+        x2_square = (x2.permute(0, 2, 1, 3) @ x2.permute(0, 2, 3, 1))
+        x2_square = x2_square.reshape(x2_square.size(0), x2_square.size(1), -1).permute(0, 2, 1).unsqueeze(-1)
+        x2 = F.instance_norm(x2)
+        '''
+        
+        x2 = self.linear(x2) #+ self.linear_prod(x2_square)
+        
+        #raise SystemExit
+
+        #print(x.size(), x2.size())
+        
+
+        #print(x_j.size())
+        #raise SystemExit
+        #x_j = self.linear(x_j) + 
+        #x_i[0:port_size] += 
+        #print(x_j.size())
+        
+        #print(x_j.size())
+    
+        
+        x = torch.cat([x.unsqueeze(2), x2.unsqueeze(2)], dim=2).reshape(b, 2 * c, n, -1)
+        #raise SystemExit
         return self.nn(x)
 
 

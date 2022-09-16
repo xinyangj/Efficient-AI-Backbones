@@ -145,6 +145,7 @@ class DenseDilatedKnnGraph(nn.Module):
         self._dilated = DenseDilated(k, dilation, stochastic, epsilon)
 
     def forward(self, x, y=None, relative_pos=None):
+        #print(self.k, self.k * self.dilation, x.size())
         if y is not None:
             #### normalize
             x = F.normalize(x, p=2.0, dim=1)
@@ -155,5 +156,6 @@ class DenseDilatedKnnGraph(nn.Module):
             #### normalize
             x = F.normalize(x, p=2.0, dim=1)
             ####
+            #print(self.k * self.dilation, x.size())
             edge_index = dense_knn_matrix(x, self.k * self.dilation, relative_pos)
         return self._dilated(edge_index)
